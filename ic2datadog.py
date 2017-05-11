@@ -1,55 +1,63 @@
-__author__ = 'ben.slater@instaclustr.com'
+#!/usr/bin/env python
 
-from datadog import initialize
+import json
+import os
 from time import sleep
+
 from datadog import statsd
-import requests, json
+import requests
 from requests.auth import HTTPBasicAuth
 
-configFile = "configuration.json"
-f = open(configFile)
-configuration = json.loads(f.read())
-f.close()
+__author__ = 'ben.slater@instaclustr.com'
 
-dd_options = configuration['dd_options']
+configFile = os.environ.get("INSTACLUSTER_DATADOG_CONFIG_PATH", "configuration.json")
+with open(configFile) as f:
+    configuration = json.load(f)
 
-initialize(**dd_options)
 
-auth_details = HTTPBasicAuth(username=configuration['ic_options']['user_name'], password=configuration['ic_options']['api_key'])
-
+auth_details = HTTPBasicAuth(username=configuration['ic_options']['user_name'],
+                             password=configuration['ic_options']['api_key'])
 
 
 consecutive_fails = 0
+metrics_list = configuration['metrics_list']
+
 while True:
-    response = requests.get(url="https://api.instaclustr.com/monitoring/v1/clusters/{0}?metrics={1},".format(configuration['cluster_id'], configuration['metrics_list']), auth=auth_details)
+    for cluster_id, cluster in configuration['clusters'].iteritems():
+        url = "https://api.instaclustr.com/monitoring/v1/clusters/%s?metrics=%s," % (cluster_id,
+                                                                                     metrics_list)
+        response = requests.get(url=url, auth=auth_details)
 
-    if not response.ok:
-        # got an error response from the Instaclustr API - raise an alert in DataDog after 3 consecutive fails
-        consecutive_fails += 1
-        print "Error retrieving metrics from Instaclustr API: {0} - {1}".format(response.status_code, response.content)
-        if consecutive_fails > 3:
-            statsd.event("Instaclustr monitoring API error", "Error code is: {0}".format(response.status_code))
-        sleep(20)
-        continue
+        if not response.ok:
+            # got an error response from the Instaclustr API - raise an alert in DataDog
+            # after 3 consecutive fails
+            consecutive_fails += 1
+            print "Error retrieving metrics from Instaclustr API: %s - %s" % (response.status_code,
+                                                                              response.content)
+            if consecutive_fails > 3:
+                statsd.event("Instaclustr monitoring API error",
+                             "Error code is: {0}".format(response.status_code))
+                consecutive_fails = 0
+            sleep(20)
+            continue
 
-    consecutive_fails = 0
-    metrics = json.loads(response.content)
-    for node in metrics:
-        public_ip = node["publicIp"]
-        for metric in node["payload"]:
-            dd_metric_name = 'instaclustr.{0}.{1}'.format(public_ip,metric["metric"])
-            if metric["metric"] == "nodeStatus":
-                # node status metric maps to a data dog service check
-                if metric["values"][0]["value"] =="WARN":
-                    statsd.service_check(dd_metric_name, 1) # WARN status
+        consecutive_fails = 0
+        metrics = json.loads(response.content)
+        for node in metrics:
+            public_ip = node["publicIp"]
+            for metric in node["payload"]:
+                tags = ['cluster:%s' % cluster, 'public_ip:%s' % public_ip]
+                dd_metric_name = 'instaclustr.cassandra.%s' % metric["metric"]
+                if metric["metric"] == "nodeStatus":
+                    # node status metric maps to a data dog service check
+                    if metric["values"][0]["value"] == "WARN":
+                        statsd.service_check(dd_metric_name, 1, tags=tags)  # WARN status
+
+                    else:
+                        statsd.service_check(dd_metric_name, 0, tags=tags)  # OK status
 
                 else:
-                    statsd.service_check(dd_metric_name, 0) # OK status
+                    # all other metrics map to a data dog guage
+                    statsd.gauge(dd_metric_name, metric["values"][0]["value"], tags=tags)
 
-            else:
-                # all other metrics map to a data dog guage
-                statsd.gauge(dd_metric_name, metric["values"][0]["value"])
-
-    sleep(20)
-
-
+        sleep(20)
