@@ -58,6 +58,9 @@ while True:
 
                 else:
                     # all other metrics map to a data dog guage
-                    statsd.gauge(dd_metric_name, metric["values"][0]["value"], tags=tags)
+                    try:
+                        statsd.gauge(dd_metric_name, metric["values"][0]["value"], tags=tags)
+                    except (IndexError, KeyError):  # if there's no metric for some cluster
+                        continue
 
         sleep(20)
