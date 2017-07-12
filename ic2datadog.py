@@ -46,21 +46,20 @@ while True:
         for node in metrics:
             public_ip = node["publicIp"]
             for metric in node["payload"]:
-                tags = ['cluster:%s' % cluster, 'public_ip:%s' % public_ip]
-                dd_metric_name = 'instaclustr.cassandra.%s' % metric["metric"]
-                if metric["metric"] == "nodeStatus":
-                    # node status metric maps to a data dog service check
-                    if metric["values"][0]["value"] == "WARN":
-                        statsd.service_check(dd_metric_name, 1, tags=tags)  # WARN status
+                try:
+                    tags = ['cluster:%s' % cluster, 'public_ip:%s' % public_ip]
+                    dd_metric_name = 'instaclustr.cassandra.%s' % metric["metric"]
+                    if metric["metric"] == "nodeStatus":
+                        # node status metric maps to a data dog service check
+                        if metric["values"][0]["value"] == "WARN": statsd.service_check(dd_metric_name, 1, tags=tags)  # WARN status
+
+                        else:
+                            statsd.service_check(dd_metric_name, 0, tags=tags)  # OK status
 
                     else:
-                        statsd.service_check(dd_metric_name, 0, tags=tags)  # OK status
-
-                else:
-                    # all other metrics map to a data dog guage
-                    try:
+                        # all other metrics map to a data dog guage
                         statsd.gauge(dd_metric_name, metric["values"][0]["value"], tags=tags)
-                    except (IndexError, KeyError):  # if there's no metric for some cluster
-                        continue
+                except (IndexError, KeyError):  # if there's no metric for some cluster
+                    continue
 
         sleep(20)
