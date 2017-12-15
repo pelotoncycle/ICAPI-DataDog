@@ -10,7 +10,7 @@ from requests.auth import HTTPBasicAuth
 
 __author__ = 'ben.slater@instaclustr.com'
 
-configFile = os.environ.get("INSTACLUSTER_DATADOG_CONFIG_PATH", "configuration.json")
+configFile = os.environ.get("INSTACLUSTR_DATADOG_CONFIG_PATH", "configuration.json")
 with open(configFile) as f:
     configuration = json.load(f)
 
